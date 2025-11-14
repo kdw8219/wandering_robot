@@ -1,0 +1,67 @@
+# ============================================================
+# ROS2 / Colcon workspace
+# ============================================================
+build/
+install/
+log/
+
+# colcon metadata
+.colcon/
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# VSCode / JetBrains
+.vscode/
+.idea/
+
+# Launch / parameter backups
+*.launch.py~
+*.yaml~
+
+# Python venv
+.venv/
+venv/
+env/
+
+# ROS2 generated files
+*.egg-info/
+*.whl
+
+# Mac / Windows junk
+.DS_Store
+Thumbs.db
+
+# Crash logs / temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# ROS2 package indexing artifacts
+ament_cmake_core/
+ament_cmake_environment_hooks/
+ament_cmake_export_dependencies/
+ament_cmake_export_include_directories/
+ament_cmake_export_libraries/
+ament_cmake_export_link_flags/
+ament_cmake_include_directories/
+ament_cmake_libraries/
+ament_cmake_python/
+ament_cmake_symlink_install/
+ament_index/
+
+# Optional: if you use rosbag
+*.db3
+rosbag2_*
+

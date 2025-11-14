@@ -1,0 +1,6 @@
+http_client_node:
+  ros__parameters:
+    server_url: "http://prod.server.com"
+    server_port: 8081
+    api_key: "1234-ABCD"
+    timeout: 3.0
