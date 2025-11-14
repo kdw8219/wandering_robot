@@ -18,22 +18,20 @@ class HttpClientNode(Node):
         self.get_logger().info("HTTP Client Node Started.")
         
     def send_request(self): #sort of heartbeat
-       
-        
-        self.get_logger().info(self.url)
-        self.get_logger().info(self.port)
-        
         try:
             response = requests.get(self.url+":"+self.port, timeout=self.timeout)
             self.get_logger().info(f"Status: {response.status_code}")
             self.get_logger().info(f"Body: {response.text}")
+        except requests.exceptions.Timeout as e:
+            pass # heartbeat failed
         except Exception as e:
-            self.get_logger().error(f"Request failed: {e}")
+            self.get_logger().error(f"Request failed: {e}") # heartbeat failed
             
             
 def main(args=None):
     rclpy.init(args=args)
     node = HttpClientNode()
     rclpy.spin(node)
+    rclpy.spin_once()
     node.destroy_node()
     rclpy.shutdown()
