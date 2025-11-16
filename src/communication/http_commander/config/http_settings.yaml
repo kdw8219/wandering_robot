@@ -2,5 +2,5 @@ http_client_node:
   ros__parameters:
     server_url: "http://prod.server.com"
     server_port: 8081
-    api_key: "1234-ABCD"
-    timeout: 3.0
+    robot_id: "test_robot_1"
+    request_expired: 3.0
