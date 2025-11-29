@@ -5,6 +5,9 @@ import threading
 from std_msgs.msg import String
 import json
 import random
+from nav_msgs.msg import Odometry
+from rclpy.qos import qos_profile_sensor_data
+from concurrent.futures import ThreadPoolExecutor
 
 class dummy_status_node(Node):
     
@@ -21,10 +24,32 @@ class dummy_status_node(Node):
         self.loop_thread = threading.Thread(target=self.start_async, daemon=True)
         self.loop_thread.start()
         
-        self.status_pub = self.create_publisher(String, '/robot/status', 10)
+        self.status_pub = self.create_publisher(String, '/robot/status', qos_profile_sensor_data)
+        self.pos_pub = self.create_publisher(String, '/robot/pos', qos_profile_sensor_data)
+        
         self.battery = 100.0
         
         self.create_timer(3.0, self.run_timer)
+        self.executor = ThreadPoolExecutor(max_workers=4)
+        
+        # subscribe gazebo odometry
+        self.create_subscription(
+            Odometry,
+            '/odom',
+            self.odom_callback,
+            qos_profile=qos_profile_sensor_data
+        )
+        
+        self.robot_state = {
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "orientation": {
+                "x": 0, "y": 0, "z": 0, "w": 0
+            },
+            "linear_speed": 0,
+            "angular_speed": 0,
+        }
         
         return
     
@@ -69,6 +94,36 @@ class dummy_status_node(Node):
         
         return
     
+    def process_odom(self, msg):
+        
+        # position
+        self.robot_state["x"] = msg.pose.pose.position.x
+        self.robot_state["y"] = msg.pose.pose.position.y
+        self.robot_state["z"] = msg.pose.pose.position.z
+        
+        # orientation
+        self.robot_state["orientation"] = {
+            "x": msg.pose.pose.orientation.x,
+            "y": msg.pose.pose.orientation.y,
+            "z": msg.pose.pose.orientation.z,
+            "w": msg.pose.pose.orientation.w,
+        }
+
+        # speed
+        self.robot_state["linear_speed"] = msg.twist.twist.linear.x
+        self.robot_state["angular_speed"] = msg.twist.twist.angular.z
+
+        #get_logger().info(f"Robot pose: {self.robot_state}")
+        
+        pos = String()
+        pos.data = json.dumps(self.robot_state)
+        
+        self.pos_pub.publish(pos)
+    
+    def odom_callback(self, msg: Odometry):
+        self.executor.submit(self, msg)
+        
+    
     def start_async(self):
         asyncio.set_event_loop(self.loop)
         self.loop.run_forever()
@@ -99,3 +154,4 @@ def main(args=None):
 
 if __name__ == '___main___':
     main()
+

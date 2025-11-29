@@ -1,7 +1,7 @@
 dummy_status_node:
   ros__parameters:
     server_url: "http://127.0.0.1"
-    server_port: 8082
+    server_port: 8000
     robot_id: "test_robot_1"
     robot_secret: "1234qwer"
     request_expired: 3.0
