@@ -25,17 +25,17 @@ class dummy_status_node(Node):
         self.error = "None"
         self.loop = asyncio.new_event_loop()
         
-        self.loop_thread = threading.Thread(target=self.workThread, daemon=True)
-        self.loop_thread.start()
-        
         self.status_pub = self.create_publisher(String, '/robot/status', qos_profile_sensor_data)
         self.pos_pub = self.create_publisher(String, '/robot/pos', qos_profile_sensor_data)
         
         self.battery = 100.0
         
-        self.create_timer(3.0, self.run_timer)
+        
         self.queue = Queue()
         
+        self.loop_thread = threading.Thread(target=self.workerThread, daemon=True)
+        self.loop_thread.start()
+                
         # subscribe gazebo odometry
         self.create_subscription(
             Odometry,
@@ -55,13 +55,15 @@ class dummy_status_node(Node):
             "angular_speed": 0,
         }
         
+        self.create_timer(3.0, self.run_timer)
+        
         return
     
     def run_timer(self):
-        asyncio.run_coroutine_threadsafe(self.pub_dummy(), self.loop)
+        self.pub_dummy()
         return
     
-    async def pub_dummy(self):
+    def pub_dummy(self):
         
         self.battery -= self.battery_decreasing[int(random.random()) % 3]
         
@@ -76,7 +78,6 @@ class dummy_status_node(Node):
             
         else:
             pick = (int(random.random()) % 2) + 1
-            print(pick)
             self.current_status = self.status[pick] # 1 or 2
             
             
@@ -92,6 +93,7 @@ class dummy_status_node(Node):
             }
         }
         
+        self.get_logger().info('create dummy status')
         self.queue.put(task)
         
         return
@@ -158,15 +160,22 @@ class dummy_status_node(Node):
         
         while True: 
             task = self.queue.get()
-            msg = json.dumps(task['payload'])
             
-            if task['task_name'] is 'status':
-                self.status_pub.publish(msg)
-            elif task['task_name'] is 'pos':
-                self.pos_pub.publish(msg)
-            else:
-                self.get_logger().error(f'unsupported task name{task['task_name']}')
-                continue
+            msg = String()
+            msg.data = json.dumps(task['payload'])
+            
+            try:
+                if task['task_name'] == 'status':
+                    self.status_pub.publish(msg)
+                elif task['task_name'] == 'pos':
+                    self.pos_pub.publish(msg)
+                else:
+                    self.get_logger().error(f'unsupported task name{task['task_name']}')
+                    continue
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self.get_logger().error(f"Unexpected error: {e}")
             
             
             self.get_logger().info(f"Published: {task['task_name']}")
