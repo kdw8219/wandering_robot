@@ -8,6 +8,10 @@ import random
 from nav_msgs.msg import Odometry
 from rclpy.qos import qos_profile_sensor_data
 from concurrent.futures import ThreadPoolExecutor
+from queue import Queue
+
+#TODO : async 배제, threading 위주로 코드 개선
+#rclpy가 thread safe하지 않고, 비동기 동작이 2개 이상 동시에 동작하게 될 경우에 
 
 class dummy_status_node(Node):
     
@@ -21,7 +25,7 @@ class dummy_status_node(Node):
         self.error = "None"
         self.loop = asyncio.new_event_loop()
         
-        self.loop_thread = threading.Thread(target=self.start_async, daemon=True)
+        self.loop_thread = threading.Thread(target=self.workThread, daemon=True)
         self.loop_thread.start()
         
         self.status_pub = self.create_publisher(String, '/robot/status', qos_profile_sensor_data)
@@ -30,14 +34,14 @@ class dummy_status_node(Node):
         self.battery = 100.0
         
         self.create_timer(3.0, self.run_timer)
-        self.executor = ThreadPoolExecutor(max_workers=4)
+        self.queue = Queue()
         
         # subscribe gazebo odometry
         self.create_subscription(
             Odometry,
             '/odom',
             self.odom_callback,
-            qos_profile=qos_profile_sensor_data
+            qos_profile=10
         )
         
         self.robot_state = {
@@ -79,22 +83,37 @@ class dummy_status_node(Node):
         if (int(random.random()) % 100) == 99:
             self.error = "Error"
         
-        data = {
-            "battery": round(self.battery, 4),
-            "status": self.current_status,
-            "error": self.error
+        task = { 
+            'task_name': 'status',
+            'payload' : {
+                "battery": round(self.battery, 4),
+                "status": self.current_status,
+                "error": self.error
+            }
         }
         
-        msg = String()
-        msg.data = json.dumps(data)
-        
-        await self.status_pub.publish(msg)
-        
-        self.get_logger().info(f"Published: {msg.data}")
+        self.queue.put(task)
         
         return
     
+    def check_position_changed(self, msg) -> bool:
+        if (abs(self.robot_state["x"] - msg.pose.pose.position.x) < 0.001 
+            and abs(self.robot_state["y"] - msg.pose.pose.position.y) < 0.001 
+            and abs(self.robot_state["z"] - msg.pose.pose.position.z) < 0.001
+            and abs(self.robot_state['orientation']['x'] - msg.pose.pose.orientation.x) < 0.001
+            and abs(self.robot_state['orientation']['y'] - msg.pose.pose.orientation.y) < 0.001
+            and abs(self.robot_state['orientation']['z'] - msg.pose.pose.orientation.z) < 0.001
+            and abs(self.robot_state['orientation']['w'] - msg.pose.pose.orientation.w) < 0.001
+            and abs(self.robot_state["linear_speed"] - msg.twist.twist.linear.x) < 0.001
+            and abs(self.robot_state["angular_speed"] - msg.twist.twist.angular.z) < 0.001) :
+            return True
+            
+        return False
+    
     def process_odom(self, msg):
+        
+        if self.check_position_changed(msg) is True:
+            return False
         
         # position
         self.robot_state["x"] = msg.pose.pose.position.x
@@ -113,32 +132,46 @@ class dummy_status_node(Node):
         self.robot_state["linear_speed"] = msg.twist.twist.linear.x
         self.robot_state["angular_speed"] = msg.twist.twist.angular.z
 
-        #get_logger().info(f"Robot pose: {self.robot_state}")
+        self.get_logger().info(f"Robot pose: {self.robot_state}")
         
-        pos = String()
-        pos.data = json.dumps(self.robot_state)
+        return True
+        # pos = String()
+        # pos.data = json.dumps(self.robot_state)
         
-        self.pos_pub.publish(pos)
+        # self.pos_pub.publish(pos)
     
     def odom_callback(self, msg: Odometry):
-        self.executor.submit(self, msg)
+        
+        if False == self.process_odom():
+            self.get_logger.info('Any changes in odometry data')
+            return
+        
+        task = {
+            'task_name': 'pos',
+            'payload' : self.robot_state
+        }
+        
+        self.queue.put(task)
         
     
-    def start_async(self):
-        asyncio.set_event_loop(self.loop)
-        self.loop.run_forever()
-        return
+    def workerThread(self):
+        
+        while True: 
+            task = self.queue.get()
+            msg = json.dumps(task['payload'])
+            
+            if task['task_name'] is 'status':
+                self.status_pub.publish(msg)
+            elif task['task_name'] is 'pos':
+                self.pos_pub.publish(msg)
+            else:
+                self.get_logger().error(f'unsupported task name{task['task_name']}')
+                continue
+            
+            
+            self.get_logger().info(f"Published: {task['task_name']}")
     
-    async def async_shutdown(self):
-        if self.client:
-            await self.client.close()
-            self.get_logger().info("HTTP Session Closed.")
-        self.loop.stop()
-
-    def destroy_node(self):
-        future = asyncio.run_coroutine_threadsafe(self.async_shutdown(), self.loop)
-        future.result()
-        super().destroy_node()
+    
 
 def main(args=None):
     rclpy.init(args=args)
