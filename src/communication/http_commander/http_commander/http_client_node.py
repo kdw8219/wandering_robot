@@ -1,10 +1,14 @@
 import rclpy
 from rclpy.node import Node
-import aiohttp
+from rclpy.qos import qos_profile_sensor_data
+import requests
 import asyncio
-import threading
-import jwt
 import json
+from std_msgs.msg import String
+import threading
+from queue import Queue
+
+#TODO : async 배제, threading 위주로 코드 개선
 
 class HttpClientNode(Node):
 
@@ -33,106 +37,102 @@ class HttpClientNode(Node):
 
         # Async components
         self.loop = asyncio.new_event_loop()
-        self.client: aiohttp.ClientSession | None = None
+        self.client: requests.Session | None = None
         self.login_tried = False
-
-        # Run event loop in background thread
-        self.loop_thread = threading.Thread(target=self.start_loop, daemon=True)
-        self.loop_thread.start()
 
         # ROS timer
         self.timer = self.create_timer(3, self.timer_callback)
         
-        # JWT Handler
-        #self.jwt_timer = self.create_timer(5, self.)
-
+        # thread task queue, Thread safe
+        self.queue = Queue()
+        
+        # thread
+        self.loop_thread = threading.Thread(target=self.workerThread, daemon=True)
+        
+        # subscribe gazebo odometry
+        self.create_subscription(
+            String,
+            '/robot/status',
+            self.status_callback,
+            qos_profile=qos_profile_sensor_data
+        )
+        
+        # subscribe gazebo odometry
+        self.create_subscription(
+            String,
+            '/robot/pos',
+            self.pos_callback,
+            qos_profile=qos_profile_sensor_data
+        )
+        
         self.get_logger().info("HTTP Client Node Started.")
 
-
-    # =======================================================
-    # Event Loop Runner (thread)
-    # =======================================================
-    def start_loop(self):
-        asyncio.set_event_loop(self.loop)
-        self.loop.run_forever()
-
-    async def heartbeat(self):
-        url = f"{self.url}:{self.port}/api/robots/heartbeat/"
-        self.get_logger().info(f"Trying refresh: {url}")
-        payload = {
-            'robot_id': self.robot_id
+    def status_callback(self, msg: String):
+        task = {
+            "url": f"{self.url}:{self.port}/api/robots/status/",
+            "payload" : json.loads(msg.data)
         }
-
-        try:
-            timeout = aiohttp.ClientTimeout(total=self.request_expired)
-
-            async with self.client.post(url, timeout=timeout, json=payload) as resp:
-                resp.raise_for_status()
-                text = await resp.text()
-
-            self.get_logger().info(f"Heartbeating Success. + {text}")
-
-        except asyncio.TimeoutError:
-            self.get_logger().error("Heartbeating timed out!")
-        except aiohttp.ClientResponseError as e:
-            self.get_logger().error(f"HTTP Client error: {e}")
-        except aiohttp.ClientError as e:
-            self.get_logger().error(f"HTTP Client error: {e}")
-        except Exception as e:
-            self.get_logger().error(f"Unexpected error: {e}")
         
-        return
-
-    # =======================================================
-    # refresh access token using refresh token (thread)
-    # =======================================================
-    async def refresh_token(self):
+        self.queue.put(task)
         
-        url = f"{self.url}:{self.port}/api/robots/tokens/refresh/"
-        self.get_logger().info(f"Trying refresh: {url}")
-        payload = {
-            'refresh_token': self.refresh_token
+        self.heartbeat() # status is periodical data so, can be handled in a single thread
+        
+    def pos_callback(self, msg: String):
+        task = {
+            "url": f"{self.url}:{self.port}/api/robots/pos/",
+            "payload" : json.loads(msg.data)
         }
-
-        try:
-            timeout = aiohttp.ClientTimeout(total=self.request_expired)
-
-            async with self.client.post(url, timeout=timeout, json=payload) as resp:
-                resp.raise_for_status()
-                text = await resp.text()
-                data_json = json.loads(text)
-                
-                self.access_token = data_json['access_token']
-                
-                self.on_refreshing=False
-
-            self.get_logger().info(f"Token Refresh Success.")
-
-        except asyncio.TimeoutError:
-            self.get_logger().error("Token Refresh timed out!")
-        except aiohttp.ClientResponseError as e:
-            if e.status == 401: #Unauthorized
-                self.login_tried = False
-                self.get_logger().error(f"Login Expired: {e}")
-            else:
-                self.get_logger().error(f"HTTP Client error: {e}")
-        except aiohttp.ClientError as e:
-            self.get_logger().error(f"HTTP Client error: {e}")
-        except Exception as e:
-            self.get_logger().error(f"Unexpected error: {e}")
         
-        return
+        self.queue.put(task)
+        
+        pass
+
+    def workerThread(self):
+        while True: 
+            task = self.queue.get()
+            
+            task_string = "temp"
+            if 'heartbeat' in task['url']:
+                task_string = 'heartbeat'
+            elif 'status' in task['url']:
+                task_string = 'status'
+            elif 'pos' in task['url']:
+                task_string = 'position'
+            
+            self.get_logger().info(f"Trying URL: {task['url']}")
+            
+            try:
+                resp = requests.post(task['url'], json=task['payload'], timeout=(1, 1)) 
+                resp.raise_for_status()
+                self.get_logger().info(f"{task_string} processing Success. + {resp.text}")
+
+            except Exception as e:
+                self.get_logger().error(f"Unexpected error: {e}")
+            
+            self.queue.task_done()
     
+    def heartbeat(self):
+        task = {
+            "url": f"{self.url}:{self.port}/api/robots/heartbeat/",
+            "payload" : {
+                'robot_id': self.robot_id
+            }
+        }
+        
+        self.queue.put(task)
+        
+        return
+
     # =======================================================
     # Timer callback
     # =======================================================
     def timer_callback(self):
         if self.client is None:
-            asyncio.run_coroutine_threadsafe(self.initialize_session(), self.loop)
+            self.initialize_session()
             return
 
         if not self.login_tried:
-            asyncio.run_coroutine_threadsafe(self.try_login_once(), self.loop)
+            self.try_login_once()
             return
         
         #run additional (like jwt)
@@ -141,25 +141,15 @@ class HttpClientNode(Node):
         if self.client is None or self.login_tried is None:
             return
         
-        #Connected
-        #token process, if access token is expired
-        # if self.access_token != "" and self.valid_access_token() is False:
-        #     self.on_refreshing = True
-        #     asyncio.run_coroutine_threadsafe(self.refresh_token(), self.loop)
-        
-        #heartbeat
-        #send heartbeat
-        #just of heartbeating. using robot_id
-        
-        asyncio.run_coroutine_threadsafe(self.heartbeat(), self.loop)
+        self.heartbeat()
         
     # =======================================================
     # Create aiohttp session
     # =======================================================
-    async def initialize_session(self):
+    def initialize_session(self):
         if self.client is None:
             try:
-                self.client = aiohttp.ClientSession()
+                self.client = requests.Session()
                 self.get_logger().info("ClientSession initialized.")
             except Exception as e:
                 self.get_logger().error(f"ClientSession init failed: {e}")
@@ -168,7 +158,7 @@ class HttpClientNode(Node):
     # =======================================================
     # Login Once
     # =======================================================
-    async def try_login_once(self):
+    def try_login_once(self):
         if self.login_tried or self.client is None:
             return
 
@@ -180,44 +170,35 @@ class HttpClientNode(Node):
         }
 
         try:
-            timeout = aiohttp.ClientTimeout(total=self.request_expired)
+            resp = self.client.post(url, json=payload, timeout=(1, 1))
+            resp.raise_for_status()
 
-            async with self.client.post(url, timeout=timeout, json=payload) as resp:
-                resp.raise_for_status()
-                text = await resp.text()
-
-            self.get_logger().info(f"Login success + {text}.")
+            self.get_logger().info(f"Login success + {resp.text}.")
             self.login_tried = True
             
-            json_data = json.loads(text)
+            json_data = json.loads(resp.text)
             self.access_token = json_data['access_token']
             self.refresh_token = json_data['refresh_token']
             
-        except asyncio.TimeoutError:
-            self.get_logger().error("Login request timed out!")
-        except aiohttp.ClientError as e:
-            self.get_logger().error(f"HTTP Client error: {e}")
+            # loop thread should run after login
+            self.loop_thread.start()
+            
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             self.get_logger().error(f"Unexpected error: {e}")
         except json.JSONDecodeError as e:
             self.get_logger().error(f"Failed to decode JSON. Error: {e}")
-            self.get_logger().error(f"Problematic text content: {text}")
 
 
     # =======================================================
     # Shutdown (node destroy)
     # =======================================================
-    async def async_shutdown(self):
+    def shutdown(self):
         if self.client:
-            await self.client.close()
+            self.client.close()
             self.get_logger().info("HTTP Session Closed.")
-        self.loop.stop()
-
-    def destroy_node(self):
-        future = asyncio.run_coroutine_threadsafe(self.async_shutdown(), self.loop)
-        future.result()
-        super().destroy_node()
-
+        
 
 # ================================================================
 # MAIN
