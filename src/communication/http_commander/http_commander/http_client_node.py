@@ -7,6 +7,7 @@ import json
 from std_msgs.msg import String
 import threading
 from queue import Queue
+import socket
 
 #TODO : async 배제, threading 위주로 코드 개선
 
@@ -22,6 +23,7 @@ class HttpClientNode(Node):
         self.declare_parameter("robot_secret", "abcdzxcv")
         self.declare_parameter("request_expired", 3.0)
         self.declare_parameter("access_secret_key", "abcdefg")
+        self.declare_parameter("server_ip", "127.0.0.1")
 
         self.url = self.get_parameter("server_url").value
         self.port = str(self.get_parameter("server_port").value)
@@ -29,6 +31,7 @@ class HttpClientNode(Node):
         self.robot_secret = self.get_parameter("robot_secret").value
         self.request_expired = self.get_parameter("request_expired").value
         self.access_secret_key = self.get_parameter("access_secret_key").value
+        self.server_ip = self.get_parameter("server_ip").value
 
         # TOKENS
         self.on_refreshing = False
@@ -115,7 +118,8 @@ class HttpClientNode(Node):
         task = {
             "url": f"{self.url}:{self.port}/api/robots/heartbeat/",
             "payload" : {
-                'robot_id': self.robot_id
+                'robot_id': self.robot_id,
+                'stream_ip': self.get_robot_ip(),
             }
         }
         
@@ -190,6 +194,15 @@ class HttpClientNode(Node):
         except json.JSONDecodeError as e:
             self.get_logger().error(f"Failed to decode JSON. Error: {e}")
 
+
+    def get_robot_ip(self):
+        server_addr=(self.server_ip, 7777)
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(server_addr)
+            return s.getsockname()[0]
+        finally:
+            s.close()
 
     # =======================================================
     # Shutdown (node destroy)
