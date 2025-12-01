@@ -5,3 +5,4 @@ http_client_node:
     robot_id: "test_robot_1"
     robot_secret: "1234qwer"
     request_expired: 3.0
+    server_ip: "127.0.0.1"
