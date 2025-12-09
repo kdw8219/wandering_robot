@@ -1,7 +1,6 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-import requests
 import asyncio
 import json
 from std_msgs.msg import String
@@ -9,16 +8,21 @@ import threading
 from queue import Queue
 import socket
 
+import grpc
+from grpc_commander.grpc.generated import robot_gateway_api_pb2 as pb
+from grpc_commander.grpc.generated import robot_gateway_api_pb2_grpc
+
+
 #TODO : async 배제, threading 위주로 코드 개선
 
-class HttpClientNode(Node):
+class GrpcClientNode(Node):
 
     def __init__(self):
-        super().__init__('http_client_node')
+        super().__init__('grpc_client_node')
 
         # PARAMETERS
-        self.declare_parameter("server_url", "http://127.0.0.1")
-        self.declare_parameter("server_port", 80)
+        self.declare_parameter("server_url", "127.0.0.1")
+        self.declare_parameter("server_port", 50051)
         self.declare_parameter("robot_id", "abcd")
         self.declare_parameter("robot_secret", "abcdzxcv")
         self.declare_parameter("request_expired", 3.0)
@@ -33,6 +37,20 @@ class HttpClientNode(Node):
         self.access_secret_key = self.get_parameter("access_secret_key").value
         self.server_ip = self.get_parameter("server_ip").value
 
+        # gRPC 채널 생성 (동기식, keepalive 포함 가능)
+        self.channel = grpc.insecure_channel(
+            self.url + ':' + self.port,
+            options=[
+                ('grpc.keepalive_time_ms', 10000),
+                ('grpc.keepalive_timeout_ms', 5000),
+                ('grpc.http2.max_pings_without_data', 0),
+                ('grpc.enable_retries', 1)
+            ]
+        )
+
+        # Stub 생성
+        self.stub = robot_gateway_api_pb2_grpc.RobotApiGatewayStub(self.channel)
+
         # TOKENS
         self.on_refreshing = False
         self.access_token = ""
@@ -40,7 +58,6 @@ class HttpClientNode(Node):
 
         # Async components
         self.loop = asyncio.new_event_loop()
-        self.client: requests.Session | None = None
         self.login_tried = False
 
         # ROS timer
@@ -68,11 +85,11 @@ class HttpClientNode(Node):
             qos_profile=qos_profile_sensor_data
         )
         
-        self.get_logger().info("HTTP Client Node Started.")
+        self.get_logger().info("GRPC Client Node Started.")
 
     def status_callback(self, msg: String):
         task = {
-            "url": f"{self.url}:{self.port}/api/robots/status/",
+            "func": "status",
             "payload" : json.loads(msg.data)
         }
         
@@ -82,7 +99,7 @@ class HttpClientNode(Node):
         
     def pos_callback(self, msg: String):
         task = {
-            "url": f"{self.url}:{self.port}/api/robots/pos/",
+            "func" : "pos",
             "payload" : json.loads(msg.data)
         }
         
@@ -93,30 +110,30 @@ class HttpClientNode(Node):
     def workerThread(self):
         while True: 
             task = self.queue.get()
-            
-            task_string = "temp"
-            if 'heartbeat' in task['url']:
-                task_string = 'heartbeat'
-            elif 'status' in task['url']:
-                task_string = 'status'
-            elif 'pos' in task['url']:
-                task_string = 'position'
-            
-            self.get_logger().info(f"Trying URL: {task['url']}")
-            
             try:
-                resp = requests.post(task['url'], json=task['payload'], timeout=(1, 1)) 
-                resp.raise_for_status()
-                self.get_logger().info(f"{task_string} processing Success. + {resp.text}")
-
+                task_string = "temp"
+                if 'heartbeat' in task['func']:
+                    self.get_logger().info(f"Trying function: {task['func']}")
+                    request = pb.HeartbeatRequest(
+                        robot_id=task['payload']['robot_id'],
+                        internal_ip=task['payload']['stream_ip']
+                    )
+                    response = self.stub.Heartbeat(request, timeout=3.0)
+                    task_string = 'heartbeat'
+                    self.get_logger().info(f"Heartbeat success? : {response.success}. Result: {response.result}.")
+                elif 'status' in task['func']:
+                    task_string = 'status'
+                elif 'pos' in task['func']:
+                    task_string = 'position'
+            
             except Exception as e:
                 self.get_logger().error(f"Unexpected error: {e}")
             
             self.queue.task_done()
-    
+
     def heartbeat(self):
         task = {
-            "url": f"{self.url}:{self.port}/api/robots/heartbeat/",
+            "func": "heartbeat",
             "payload" : {
                 'robot_id': self.robot_id,
                 'stream_ip': self.get_robot_ip(),
@@ -131,61 +148,49 @@ class HttpClientNode(Node):
     # Timer callback
     # =======================================================
     def timer_callback(self):
-        if self.client is None:
-            self.initialize_session()
-            return
-
-        if not self.login_tried:
+        if self.login_tried is False:
             self.try_login_once()
             return
         
         #run additional (like jwt)
         
         #Not Connected
-        if self.client is None or self.login_tried is None:
+        if self.login_tried is False:
             return
         
         self.heartbeat()
         
     # =======================================================
-    # Create aiohttp session
-    # =======================================================
-    def initialize_session(self):
-        if self.client is None:
-            try:
-                self.client = requests.Session()
-                self.get_logger().info("ClientSession initialized.")
-            except Exception as e:
-                self.get_logger().error(f"ClientSession init failed: {e}")
-
-
-    # =======================================================
     # Login Once
     # =======================================================
     def try_login_once(self):
-        if self.login_tried or self.client is None:
+        if self.login_tried is True:
             return
 
-        url = f"{self.url}:{self.port}/api/robots/login/"
-        self.get_logger().info(f"Trying login: {url}")
-        payload = {
-            'robot_id': self.robot_id,
-            'robot_secret': self.robot_secret
-        }
-
         try:
-            resp = self.client.post(url, json=payload, timeout=(1, 1))
-            resp.raise_for_status()
-
-            self.get_logger().info(f"Login success + {resp.text}.")
-            self.login_tried = True
+            request = pb.LoginRequest(
+                robot_id=self.robot_id,
+                robot_secret=self.robot_secret
+            )
             
-            json_data = json.loads(resp.text)
-            self.access_token = json_data['access_token']
-            self.refresh_token = json_data['refresh_token']
+            self.get_logger().info(f"Robot ID? : {self.robot_id}.")
+            self.get_logger().info(f"Robot Secret? : {self.robot_secret}.")
+            
+            response = self.stub.Login(request, timeout=3.0)
+
+            self.get_logger().info(f"Login success? : {response.success}.")
+            
+            if response.success is False:
+                self.get_logger().error("Login failed. Check robot_id and robot_secret.")
+                return
+            
+            self.access_token = response.access_token
+            self.refresh_token = response.refresh_token
             
             # loop thread should run after login
             self.loop_thread.start()
+            
+            self.login_tried = True
             
         except Exception as e:
             import traceback
@@ -218,7 +223,7 @@ class HttpClientNode(Node):
 # ================================================================
 def main(args=None):
     rclpy.init(args=args)
-    node = HttpClientNode()
+    node = GrpcClientNode()
 
     try:
         rclpy.spin(node)
