@@ -6,16 +6,16 @@ import os
 def generate_launch_description():
     
     config = os.path.join(
-        get_package_share_directory('http_commander'),
+        get_package_share_directory('grpc_commander'),
         'config',
-        'http_settings.yaml'
+        'grpc_settings.yaml'
     )
     
     return LaunchDescription([
         Node(
-            package='http_commander',
-            executable='http_client_node',
-            name='http_client_node',
+            package='grpc_commander',
+            executable='grpc_client_node',
+            name='grpc_client_node',
             parameters=[config]
         )
     ])

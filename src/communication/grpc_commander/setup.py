@@ -1,12 +1,15 @@
 from setuptools import find_packages, setup
 from glob import glob
 
-package_name = 'http_commander'
+package_name = 'grpc_commander'
 
 setup(
     name=package_name,
     version='0.0.0',
-    packages=find_packages(exclude=['test']),
+    packages=find_packages(exclude=['test'], include=[
+        'grpc_commander',
+        'grpc_commander.*',
+        ]),
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -33,7 +36,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'http_client_node = http_commander.http_client_node:main'
+            'grpc_client_node = grpc_commander.grpc_client_node:main'
         ],
     },
 )
