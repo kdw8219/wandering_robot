@@ -93,7 +93,8 @@ class dummy_status_node(Node):
             }
         }
         
-        self.get_logger().info('create dummy status')
+        #self.get_logger().info('create dummy status')
+        #print('dummy stauts: ' + str(task))
         self.queue.put(task)
         
         return
@@ -137,15 +138,11 @@ class dummy_status_node(Node):
         self.get_logger().info(f"Robot pose: {self.robot_state}")
         
         return True
-        # pos = String()
-        # pos.data = json.dumps(self.robot_state)
         
-        # self.pos_pub.publish(pos)
-    
     def odom_callback(self, msg: Odometry):
         
-        if False == self.process_odom():
-            self.get_logger.info('Any changes in odometry data')
+        if False == self.process_odom(msg):
+            self.get_logger().info('Any changes in odometry data')
             return
         
         task = {
