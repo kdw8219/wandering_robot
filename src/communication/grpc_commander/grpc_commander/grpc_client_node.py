@@ -9,8 +9,8 @@ from queue import Queue
 import socket
 
 import grpc
-from grpc_commander.grpc.generated import robot_gateway_api_pb2 as pb
-from grpc_commander.grpc.generated import robot_gateway_api_pb2_grpc
+import grpc_commander.grpc.generated.robot_gateway_api_pb2 as pb
+import grpc_commander.grpc.generated.robot_gateway_api_pb2_grpc as pb2_grpc
 
 
 #TODO : async 배제, threading 위주로 코드 개선
@@ -23,20 +23,18 @@ class GrpcClientNode(Node):
         # PARAMETERS
         self.declare_parameter("server_url", "127.0.0.1")
         self.declare_parameter("server_port", 50051)
-        self.declare_parameter("robot_id", "abcd")
+        self.declare_parameter("robot_id", "test_robot_1")
         self.declare_parameter("robot_secret", "abcdzxcv")
         self.declare_parameter("request_expired", 3.0)
         self.declare_parameter("access_secret_key", "abcdefg")
-        self.declare_parameter("server_ip", "127.0.0.1")
-
+        
         self.url = self.get_parameter("server_url").value
         self.port = str(self.get_parameter("server_port").value)
         self.robot_id = self.get_parameter("robot_id").value
         self.robot_secret = self.get_parameter("robot_secret").value
         self.request_expired = self.get_parameter("request_expired").value
         self.access_secret_key = self.get_parameter("access_secret_key").value
-        self.server_ip = self.get_parameter("server_ip").value
-
+        
         # gRPC 채널 생성 (동기식, keepalive 포함 가능)
         self.channel = grpc.insecure_channel(
             self.url + ':' + self.port,
@@ -49,7 +47,7 @@ class GrpcClientNode(Node):
         )
 
         # Stub 생성
-        self.stub = robot_gateway_api_pb2_grpc.RobotApiGatewayStub(self.channel)
+        self.stub = pb2_grpc.RobotApiGatewayStub(self.channel)
 
         # TOKENS
         self.on_refreshing = False
@@ -95,8 +93,6 @@ class GrpcClientNode(Node):
         
         self.queue.put(task)
         
-        self.heartbeat() # status is periodical data so, can be handled in a single thread
-        
     def pos_callback(self, msg: String):
         task = {
             "func" : "pos",
@@ -104,39 +100,57 @@ class GrpcClientNode(Node):
         }
         
         self.queue.put(task)
-        
-        pass
 
     def workerThread(self):
         while True: 
             task = self.queue.get()
             try:
-                task_string = "temp"
+                self.get_logger().info(f"Trying function: {task['func']}")
                 if 'heartbeat' in task['func']:
-                    self.get_logger().info(f"Trying function: {task['func']}")
                     request = pb.HeartbeatRequest(
                         robot_id=task['payload']['robot_id'],
-                        internal_ip=task['payload']['stream_ip']
                     )
                     response = self.stub.Heartbeat(request, timeout=3.0)
-                    task_string = 'heartbeat'
+                    
                     self.get_logger().info(f"Heartbeat success? : {response.success}. Result: {response.result}.")
                 elif 'status' in task['func']:
-                    task_string = 'status'
+                    request = pb.StatusRequest(
+                        robot_id=self.robot_id,
+                        battery = float(task['payload']['battery']),
+                        status = task['payload']['status'],
+                        error = task['payload']['error'],
+                    )
+                    response = self.stub.Status(request, timeout=3.0)
+                    self.get_logger().info(f"Status success? : {response.success}. Result: {response.result}.")
                 elif 'pos' in task['func']:
-                    task_string = 'position'
+                    request = pb.PosRequest(
+                        robot_id=self.robot_id,
+                        x = float(task['payload']['x']),
+                        y = float(task['payload']['y']),
+                        z = float(task['payload']['z']),
+                        orig_x = float(task['payload']['orientation']['x']),
+                        orig_y = float(task['payload']['orientation']['y']),
+                        orig_z = float(task['payload']['orientation']['z']),
+                        orig_w = float(task['payload']['orientation']['w']),
+                        linear_speed = float(task['payload']['linear_speed']),
+                        angular_speed = float(task['payload']['angular_speed']),
+                    )
+                    response = self.stub.Pos(request, timeout=3.0)
+                    self.get_logger().info(f"Pos success? : {response.success}. Result: {response.result}.")
+                else :
+                    self.get_logger().warning(f"Unknown task function: {task['func']}")
+                    continue
             
             except Exception as e:
                 self.get_logger().error(f"Unexpected error: {e}")
             
-            self.queue.task_done()
+            #self.queue.task_done() # 필요 없음. join을 쓰지 않기 때문.
 
     def heartbeat(self):
         task = {
             "func": "heartbeat",
             "payload" : {
                 'robot_id': self.robot_id,
-                'stream_ip': self.get_robot_ip(),
             }
         }
         
