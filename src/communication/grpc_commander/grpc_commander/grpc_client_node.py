@@ -15,8 +15,8 @@ import grpc_commander.grpc.generated.robot_request_control_pb2 as control_pb
 import grpc_commander.grpc.generated.robot_request_control_pb2_grpc as control_pb2_grpc
 import grpc_commander.grpc.generated.signaling_pb2 as signal_pb
 import grpc_commander.grpc.generated.signaling_pb2_grpc as signal_pb2_grpc
-from communication.grpc_commander.grpc_commander.robot_request_control_service import RobotRequestControlService
-from communication.grpc_commander.grpc_commander.robot_controller import RobotController
+from grpc_commander.robot_request_control_service import RobotRequestControlService
+from grpc_commander.robot_controller import RobotController
 
 from concurrent.futures import ThreadPoolExecutor
 
