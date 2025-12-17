@@ -11,7 +11,14 @@ import socket
 import grpc
 import grpc_commander.grpc.generated.robot_gateway_api_pb2 as pb
 import grpc_commander.grpc.generated.robot_gateway_api_pb2_grpc as pb2_grpc
+import grpc_commander.grpc.generated.robot_request_control_pb2 as control_pb
+import grpc_commander.grpc.generated.robot_request_control_pb2_grpc as control_pb2_grpc
+import grpc_commander.grpc.generated.signaling_pb2 as signal_pb
+import grpc_commander.grpc.generated.signaling_pb2_grpc as signal_pb2_grpc
+from grpc_commander.robot_request_control_service import RobotRequestControlService
+from grpc_commander.robot_controller import RobotController
 
+from concurrent.futures import ThreadPoolExecutor
 
 #TODO : async 배제, threading 위주로 코드 개선
 
@@ -47,7 +54,17 @@ class GrpcClientNode(Node):
         )
 
         # Stub 생성
-        self.stub = pb2_grpc.RobotApiGatewayStub(self.channel)
+        
+        self.metadata = (
+            ("X-origin", "robot"),
+        )
+        
+        self.stub = pb2_grpc.RobotApiGatewayStub(self.channel) #연결 시도
+        self.signal_stub = signal_pb2_grpc.RobotSignalServiceStub(self.channel) #연결 시도
+        self.control_stub = control_pb2_grpc.RobotRequestControlServiceStub(self.channel) #연결 시도
+        self.robot_control = RobotRequestControlService(self.control_stub, self.robot_id)
+        
+        self.robot_controller = RobotController(self.queue)
 
         # TOKENS
         self.on_refreshing = False
@@ -110,7 +127,7 @@ class GrpcClientNode(Node):
                     request = pb.HeartbeatRequest(
                         robot_id=task['payload']['robot_id'],
                     )
-                    response = self.stub.Heartbeat(request, timeout=3.0)
+                    response = self.stub.Heartbeat(request, timeout=3.0, metadata=self.metadata)
                     
                     self.get_logger().info(f"Heartbeat success? : {response.success}. Result: {response.result}.")
                 elif 'status' in task['func']:
@@ -120,7 +137,7 @@ class GrpcClientNode(Node):
                         status = task['payload']['status'],
                         error = task['payload']['error'],
                     )
-                    response = self.stub.Status(request, timeout=3.0)
+                    response = self.stub.Status(request, timeout=3.0, metadata=self.metadata)
                     self.get_logger().info(f"Status success? : {response.success}. Result: {response.result}.")
                 elif 'pos' in task['func']:
                     request = pb.PosRequest(
@@ -135,7 +152,7 @@ class GrpcClientNode(Node):
                         linear_speed = float(task['payload']['linear_speed']),
                         angular_speed = float(task['payload']['angular_speed']),
                     )
-                    response = self.stub.Pos(request, timeout=3.0)
+                    response = self.stub.Pos(request, timeout=3.0, metadata=self.metadata)
                     self.get_logger().info(f"Pos success? : {response.success}. Result: {response.result}.")
                 else :
                     self.get_logger().warning(f"Unknown task function: {task['func']}")
@@ -164,10 +181,10 @@ class GrpcClientNode(Node):
     def timer_callback(self):
         if self.login_tried is False:
             self.try_login_once()
+            self.robot_controller.run()
+            self.robot_control.run()
             return
-        
-        #run additional (like jwt)
-        
+
         #Not Connected
         if self.login_tried is False:
             return
