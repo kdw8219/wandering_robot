@@ -18,8 +18,6 @@ import grpc_commander.grpc.generated.signaling_pb2_grpc as signal_pb2_grpc
 from grpc_commander.robot_request_control_service import RobotRequestControlService
 from grpc_commander.robot_controller import RobotController
 
-from concurrent.futures import ThreadPoolExecutor
-
 #TODO : async 배제, threading 위주로 코드 개선
 
 class GrpcClientNode(Node):
@@ -185,9 +183,12 @@ class GrpcClientNode(Node):
             self.robot_control.run()
             return
 
+        self.get_logger().info("login success??")
         #Not Connected
         if self.login_tried is False:
             return
+        
+        self.get_logger().info("hearbeat start??")
         
         self.heartbeat()
         
