@@ -54,15 +54,15 @@ class GrpcClientNode(Node):
         # Stub 생성
         
         self.metadata = (
-            ("X-origin", "robot"),
+            ("x-origin", "robot"),
         )
+        self.command_queue = Queue()
         
         self.stub = pb2_grpc.RobotApiGatewayStub(self.channel) #연결 시도
         self.signal_stub = signal_pb2_grpc.RobotSignalServiceStub(self.channel) #연결 시도
         self.control_stub = control_pb2_grpc.RobotRequestControlServiceStub(self.channel) #연결 시도
-        self.robot_control = RobotRequestControlService(self.control_stub, self.robot_id)
-        
-        self.robot_controller = RobotController(self.queue)
+        self.robot_control = RobotRequestControlService(self.control_stub, self.command_queue, self.robot_id)
+        self.robot_controller = RobotController(self.command_queue)
 
         # TOKENS
         self.on_refreshing = False
@@ -99,6 +99,7 @@ class GrpcClientNode(Node):
         )
         
         self.get_logger().info("GRPC Client Node Started.")
+        self.heartbeat_start = False
 
     def status_callback(self, msg: String):
         task = {
@@ -169,7 +170,12 @@ class GrpcClientNode(Node):
             }
         }
         
+        state = self.channel._channel.check_connectivity_state(True)
+        print("channel state:", state)
+        
         self.queue.put(task)
+        
+        heartbeat_start = True
         
         return
 
@@ -179,18 +185,18 @@ class GrpcClientNode(Node):
     def timer_callback(self):
         if self.login_tried is False:
             self.try_login_once()
-            self.robot_controller.run()
-            self.robot_control.run()
             return
 
-        self.get_logger().info("login success??")
         #Not Connected
         if self.login_tried is False:
             return
         
-        self.get_logger().info("hearbeat start??")
         
         self.heartbeat()
+        
+        if self.heartbeat_start == True:
+            self.robot_controller.run()
+            self.robot_control.run()
         
     # =======================================================
     # Login Once
@@ -223,6 +229,7 @@ class GrpcClientNode(Node):
             self.loop_thread.start()
             
             self.login_tried = True
+            self.get_logger().info("Login complete")
             
         except Exception as e:
             import traceback
@@ -245,7 +252,7 @@ class GrpcClientNode(Node):
     # Shutdown (node destroy)
     # =======================================================
     def shutdown(self):
-        if self.client:
+        if self.channel:
             self.client.close()
             self.get_logger().info("HTTP Session Closed.")
         

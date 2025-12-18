@@ -12,13 +12,16 @@ class RobotController():
         self.worker.join()
         
     def run(self):
-        self.worker.run()
+        self.worker.start()
         
     def workingThread(self):
-        
+        print("Robot Controller thread start!")
         while not self.stop_event.is_set():
-            item = self.queue.get()
+            try:
+                item = self.queue.get(timeout = 0.1) #block 아님?
             
-            print(f'get Item!{item.command}')
-            
-            self.queue.task_done()
+                print(f'get Item!{item.command}')
+                
+                self.queue.task_done()
+            except queue.Empty:
+                pass

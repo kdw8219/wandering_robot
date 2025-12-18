@@ -5,11 +5,11 @@ import queue
 from google.protobuf.json_format import MessageToDict
 import json
 
-class RobotRequestControlService(control_pb2_grpc.RobotRequestControlServiceServicer):
+class RobotRequestControlService():
 
-    def __init__(self, control_stub: control_pb2_grpc.RobotRequestControlServiceStub, robot_id):
+    def __init__(self, control_stub: control_pb2_grpc.RobotRequestControlServiceStub, queue:queue.Queue, robot_id):
         self.is_stop = False
-        self.queue = queue.Queue()
+        self.queue = queue
         self.thread = threading.Thread(target=self.execute_command_async)
         self.stop_event = threading.Event()
         self.control_stub = control_stub
@@ -23,11 +23,13 @@ class RobotRequestControlService(control_pb2_grpc.RobotRequestControlServiceServ
         self.thread.start()
 
     def execute_command_async(self):
+        print("Robot Control Service thread start!")
         while not self.stop_event.is_set():
             try:
-                resp = self.control_stub.GetNextCommand(
-                    robot_id = self.robot_id
-                ) 
+                req = control_pb.RobotCommandRequest(
+                    robot_id=self.robot_id
+                )
+                resp = self.control_stub.GetNextCommand(req) 
                 payload = {
                         "has_command": resp.has_command,
                         "command": resp.command,
