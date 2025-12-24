@@ -32,7 +32,7 @@ class RobotRequestControlService():
                 resp = self.control_stub.GetNextCommand(req) 
                 payload = {
                         "has_command": resp.has_command,
-                        "command": resp.command,
+                        "command": control_pb.CommandType.Name(resp.command),
                 }
                 
                 if resp.has_command == False:
@@ -42,17 +42,14 @@ class RobotRequestControlService():
             
                     
                     if payload_type == "move":
-                        payload[payload_type] = MessageToDict(resp.move)
-                        
-                    elif resp.command == "set_speed":
-                        payload[payload_type] = MessageToDict(resp.set_speed)
-                        
-                    elif resp.command == "path_follow":
-                        payload[payload_type] = MessageToDict(resp.set_speed)
+                        payload[payload_type] = MessageToDict(resp.move, preserving_proto_field_name=True)
+                    elif payload_type == "set_speed":
+                        payload[payload_type] = MessageToDict(resp.set_speed, preserving_proto_field_name=True)
+                    elif payload_type == "path_follow":
+                        payload[payload_type] = MessageToDict(resp.path_follow, preserving_proto_field_name=True)
                 
                 
                 self.queue.put(json.dumps(payload))
             
             except Exception as e:
                 print(f'Error...:{str(e)}') #어쨌든 queue 터지지 않게 소모는 시켜줘야 할듯
-
