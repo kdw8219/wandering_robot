@@ -13,10 +13,15 @@ import grpc_commander.grpc.generated.robot_gateway_api_pb2 as pb
 import grpc_commander.grpc.generated.robot_gateway_api_pb2_grpc as pb2_grpc
 import grpc_commander.grpc.generated.robot_request_control_pb2 as control_pb
 import grpc_commander.grpc.generated.robot_request_control_pb2_grpc as control_pb2_grpc
-import grpc_commander.grpc.generated.signaling_pb2 as signal_pb
-import grpc_commander.grpc.generated.signaling_pb2_grpc as signal_pb2_grpc
+import grpc_commander.grpc.generated.robot_request_signal_pb2 as signal_pb
+import grpc_commander.grpc.generated.robot_request_signal_pb2_grpc as signal_pb2_grpc
+
 from grpc_commander.robot_request_control_service import RobotRequestControlService
 from grpc_commander.robot_controller import RobotController
+
+from grpc_commander.robot_request_signal_service import RobotRequestSignalService
+from grpc_commander.robot_webrtc import RobotWebrtc
+
 
 #TODO : async 배제, threading 위주로 코드 개선
 
@@ -57,12 +62,16 @@ class GrpcClientNode(Node):
             ("x-origin", "robot"),
         )
         self.command_queue = Queue()
+        self.signal_queue = Queue()
         
         self.stub = pb2_grpc.RobotApiGatewayStub(self.channel) #연결 시도
         self.signal_stub = signal_pb2_grpc.RobotSignalServiceStub(self.channel) #연결 시도
         self.control_stub = control_pb2_grpc.RobotRequestControlServiceStub(self.channel) #연결 시도
         self.robot_control = RobotRequestControlService(self.control_stub, self.command_queue, self.robot_id)
         self.robot_controller = RobotController(self.command_queue)
+        
+        self.robot_signal = RobotRequestSignalService(self.signal_stub, self.signal_queue, self.robot_id)
+        self.robot_webrtc = RobotWebrtc(self.signal_queue)
 
         # TOKENS
         self.on_refreshing = False
@@ -197,6 +206,8 @@ class GrpcClientNode(Node):
         if self.heartbeat_start == True:
             self.robot_controller.run()
             self.robot_control.run()
+            self.robot_webrtc.run()
+            self.robot_signal.run()
         
     # =======================================================
     # Login Once
