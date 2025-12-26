@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package robot.signaling;
+package robot.request.signaling;
 
 // WebRTC Signaling between Robot and Server
 service RobotSignalService {

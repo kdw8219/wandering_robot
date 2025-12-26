@@ -36,7 +36,7 @@ class RobotSignalServiceStub(object):
             channel: A grpc.Channel.
         """
         self.OpenSignalStream = channel.stream_stream(
-                '/robot.signaling.RobotSignalService/OpenSignalStream',
+                '/robot.request.signaling.RobotSignalService/OpenSignalStream',
                 request_serializer=signaling__pb2.SignalMessage.SerializeToString,
                 response_deserializer=signaling__pb2.SignalMessage.FromString,
                 _registered_method=True)
@@ -62,9 +62,9 @@ def add_RobotSignalServiceServicer_to_server(servicer, server):
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'robot.signaling.RobotSignalService', rpc_method_handlers)
+            'robot.request.signaling.RobotSignalService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('robot.signaling.RobotSignalService', rpc_method_handlers)
+    server.add_registered_method_handlers('robot.request.signaling.RobotSignalService', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
@@ -86,7 +86,7 @@ class RobotSignalService(object):
         return grpc.experimental.stream_stream(
             request_iterator,
             target,
-            '/robot.signaling.RobotSignalService/OpenSignalStream',
+            '/robot.request.signaling.RobotSignalService/OpenSignalStream',
             signaling__pb2.SignalMessage.SerializeToString,
             signaling__pb2.SignalMessage.FromString,
             options,
