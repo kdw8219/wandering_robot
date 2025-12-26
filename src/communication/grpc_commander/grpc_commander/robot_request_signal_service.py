@@ -1,55 +1,79 @@
 import grpc_commander.grpc.generated.robot_request_signal_pb2 as signal_pb
 import grpc_commander.grpc.generated.robot_request_signal_pb2_grpc as signal_pb2_grpc
+
 import threading
+import time
 import queue
 from google.protobuf.json_format import MessageToDict
-import json
 
-class RobotRequestSignalService():
-
-    def __init__(self, signal_stub: signal_pb2_grpc.RobotSignalServiceStub, queue:queue.Queue, robot_id):
-        self.is_stop = False
-        self.queue = queue
-        self.thread = threading.Thread(target=self.execute_command_async)
-        self.stop_event = threading.Event()
+class RobotRequestSignalService:
+   
+    def __init__(self, signal_stub: signal_pb2_grpc.RobotSignalServiceStub, signal_queue: queue.Queue, robot_id, heartbeat_interval: float = 5.0):
         self.signal_stub = signal_stub
+        self.signal_queue = signal_queue  # incoming messages to be consumed by WebRTC handler
         self.robot_id = robot_id
-        
+        self.heartbeat_interval = heartbeat_interval
+
+        self.stop_event = threading.Event()
+        self.outgoing_queue: queue.Queue = queue.Queue() # for the purpose of sending message to server
+        self.worker = threading.Thread(target=self._run_stream, daemon=True)
+
     def __del__(self):
         self.stop_event.set()
-        self.thread.join()
-        
-    def run(self):
-        self.thread.start()
+        if self.worker.is_alive():
+            self.worker.join(timeout=1)
 
-    def execute_command_async(self):
-        print("Robot Signal Service thread start!")
+    def run(self):
+        if not self.worker.is_alive():
+            self.worker.start()
+
+    def send_signal(self, message: signal_pb.SignalMessage):
+        self.outgoing_queue.put(message)
+
+    def _request_iterator(self):
+        # Initial stream creation / data request
+        yield signal_pb.SignalMessage(
+            robot_id=self.robot_id,
+            screen_request=signal_pb.ScreenRequest(),
+        )
+
+        next_heartbeat = time.time() + self.heartbeat_interval
+
         while not self.stop_event.is_set():
+            timeout = max(0, next_heartbeat - time.time())
             try:
-                req = signal_pb.RobotCommandRequest(
-                    robot_id=self.robot_id
-                )
-                resp = self.control_stub.GetNextCommand(req) 
-                payload = {
-                        "has_command": resp.has_command,
-                        "command": signal_pb.CommandType.Name(resp.command),
-                }
-                
-                if resp.has_command == False:
+                message = self.outgoing_queue.get(timeout=timeout)
+                if message is None:
                     continue
-                else:
-                    payload_type = resp.WhichOneof("payload")
-            
-                    
-                    if payload_type == "move":
-                        payload[payload_type] = MessageToDict(resp.move, preserving_proto_field_name=True)
-                    elif payload_type == "set_speed":
-                        payload[payload_type] = MessageToDict(resp.set_speed, preserving_proto_field_name=True)
-                    elif payload_type == "path_follow":
-                        payload[payload_type] = MessageToDict(resp.path_follow, preserving_proto_field_name=True)
-                
-                
-                self.queue.put(json.dumps(payload))
-            
-            except Exception as e:
-                print(f'Error...:{str(e)}') #어쨌든 queue 터지지 않게 소모는 시켜줘야 할듯
+                yield message
+                next_heartbeat = time.time() + self.heartbeat_interval
+            except queue.Empty:
+                # Heartbeat has priority when no other message is waiting.
+                yield signal_pb.SignalMessage(robot_id=self.robot_id)
+                next_heartbeat = time.time() + self.heartbeat_interval
+
+    def _run_stream(self):
+        print("Robot Signal Service thread start!")
+        try:
+            response_stream = self.signal_stub.OpenSignalStream(self._request_iterator())
+            for response in response_stream:
+                if self.stop_event.is_set():
+                    break
+                self._handle_response(response)
+        except Exception as e:
+            print(f"Signal stream error: {str(e)}")
+
+    def _handle_response(self, response: signal_pb.SignalMessage):
+        payload_type = response.WhichOneof("payload")
+        payload = {
+            "robot_id": response.robot_id,
+            "payload_type": payload_type,
+        }
+
+        if payload_type:
+            payload[payload_type] = MessageToDict(
+                getattr(response, payload_type),
+                preserving_proto_field_name=True,
+            )
+
+        self.signal_queue.put(payload)
