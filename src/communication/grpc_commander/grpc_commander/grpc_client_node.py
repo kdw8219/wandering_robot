@@ -108,7 +108,9 @@ class GrpcClientNode(Node):
         )
         
         self.get_logger().info("GRPC Client Node Started.")
+        
         self.heartbeat_start = False
+        self.taskthread_start = False
 
     def status_callback(self, msg: String):
         task = {
@@ -184,7 +186,7 @@ class GrpcClientNode(Node):
         
         self.queue.put(task)
         
-        heartbeat_start = True
+        self.heartbeat_start = True
         
         return
 
@@ -203,11 +205,12 @@ class GrpcClientNode(Node):
         
         self.heartbeat()
         
-        if self.heartbeat_start == True:
+        if self.heartbeat_start == True and self.taskthread_start == False:
             self.robot_controller.run()
             self.robot_control.run()
             self.robot_webrtc.run()
             self.robot_signal.run()
+            self.taskthread_start = True
         
     # =======================================================
     # Login Once
