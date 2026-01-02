@@ -1,3 +1,4 @@
+import os
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -15,6 +16,9 @@ import grpc_commander.grpc.generated.robot_request_control_pb2 as control_pb
 import grpc_commander.grpc.generated.robot_request_control_pb2_grpc as control_pb2_grpc
 import grpc_commander.grpc.generated.robot_request_signal_pb2 as signal_pb
 import grpc_commander.grpc.generated.robot_request_signal_pb2_grpc as signal_pb2_grpc
+
+# Enable verbose gRPC logging unless already provided from the environment.
+os.environ.setdefault("GRPC_VERBOSITY", "DEBUG")
 
 from grpc_commander.robot_request_control_service import RobotRequestControlService
 from grpc_commander.robot_controller import RobotController
