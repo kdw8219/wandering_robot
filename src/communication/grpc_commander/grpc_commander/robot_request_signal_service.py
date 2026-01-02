@@ -8,7 +8,7 @@ from google.protobuf.json_format import MessageToDict
 
 class RobotRequestSignalService:
    
-    def __init__(self, signal_stub: signal_pb2_grpc.RobotSignalServiceStub, signal_queue: queue.Queue, robot_id, heartbeat_interval: float = 5.0):
+    def __init__(self, signal_stub: signal_pb2_grpc.RobotSignalServiceStub, signal_queue: queue.Queue, robot_id, heartbeat_interval: float = 1.0):
         self.signal_stub = signal_stub
         self.signal_queue = signal_queue  # incoming messages to be consumed by WebRTC handler
         self.robot_id = robot_id
@@ -32,11 +32,12 @@ class RobotRequestSignalService:
 
     def _request_iterator(self):
         # Initial stream creation / data request
+        print("request start")
         yield signal_pb.SignalMessage(
             robot_id=self.robot_id,
             screen_request=signal_pb.ScreenRequest(),
         )
-
+        print("request end")
         next_heartbeat = time.time() + self.heartbeat_interval
 
         while not self.stop_event.is_set():
@@ -48,17 +49,22 @@ class RobotRequestSignalService:
                 yield message
                 next_heartbeat = time.time() + self.heartbeat_interval
             except queue.Empty:
-                # Heartbeat has priority when no other message is waiting.
-                yield signal_pb.SignalMessage(robot_id=self.robot_id)
+                print("heartbeat start")
+                yield signal_pb.SignalMessage(robot_id=self.robot_id) #work here?
+                print("heartbeat end")
                 next_heartbeat = time.time() + self.heartbeat_interval
+            
 
     def _run_stream(self):
         print("Robot Signal Service thread start!")
         try:
             response_stream = self.signal_stub.OpenSignalStream(self._request_iterator())
             for response in response_stream:
+                print("run?")
                 if self.stop_event.is_set():
+                    print("run end")
                     break
+                print("keep listening")
                 self._handle_response(response)
         except Exception as e:
             print(f"Signal stream error: {str(e)}")
