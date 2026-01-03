@@ -9,6 +9,9 @@ import threading
 from queue import Queue
 import socket
 
+os.environ.setdefault("GRPC_VERBOSITY", "DEBUG")
+os.environ.setdefault("GRPC_TRACE", "all")
+
 import grpc
 import grpc_commander.grpc.generated.robot_gateway_api_pb2 as pb
 import grpc_commander.grpc.generated.robot_gateway_api_pb2_grpc as pb2_grpc
@@ -18,7 +21,10 @@ import grpc_commander.grpc.generated.robot_request_signal_pb2 as signal_pb
 import grpc_commander.grpc.generated.robot_request_signal_pb2_grpc as signal_pb2_grpc
 
 # Enable verbose gRPC logging unless already provided from the environment.
-os.environ.setdefault("GRPC_VERBOSITY", "DEBUG")
+import os
+import sys
+import logging
+import asyncio
 
 from grpc_commander.robot_request_control_service import RobotRequestControlService
 from grpc_commander.robot_controller import RobotController
@@ -26,6 +32,13 @@ from grpc_commander.robot_controller import RobotController
 from grpc_commander.robot_request_signal_service import RobotRequestSignalService
 from grpc_commander.robot_webrtc import RobotWebrtc
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+    ],
+)
 
 #TODO : async 배제, threading 위주로 코드 개선
 
@@ -188,7 +201,7 @@ class GrpcClientNode(Node):
         state = self.channel._channel.check_connectivity_state(True)
         print("channel state:", state)
         
-        self.queue.put(task)
+        #self.queue.put(task)
         
         self.heartbeat_start = True
         
