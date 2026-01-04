@@ -32,27 +32,26 @@ class RobotRequestSignalService:
 
     def _request_iterator(self):
         # Initial stream creation / data request
-        print("request start")
-        yield signal_pb.SignalMessage(
-            robot_id=self.robot_id,
-            screen_request=signal_pb.ScreenRequest(),
-        )
-        print("request end")
-        next_heartbeat = time.time() + self.heartbeat_interval
+        try:
+            yield signal_pb.SignalMessage(
+                robot_id=self.robot_id,
+                screen_request=signal_pb.ScreenRequest(),
+            )
+            next_heartbeat = time.time() + self.heartbeat_interval
 
-        while not self.stop_event.is_set():
-            timeout = max(0, next_heartbeat - time.time())
-            try:
-                message = self.outgoing_queue.get(timeout=timeout)
-                if message is None:
-                    continue
-                yield message
-                next_heartbeat = time.time() + self.heartbeat_interval
-            except queue.Empty:
-                print("heartbeat start")
-                yield signal_pb.SignalMessage(robot_id=self.robot_id) #work here?
-                print("heartbeat end")
-                next_heartbeat = time.time() + self.heartbeat_interval
+            while not self.stop_event.is_set():
+                timeout = max(0, next_heartbeat - time.time())
+                try:
+                    message = self.outgoing_queue.get(timeout=timeout)
+                    if message is None:
+                        continue
+                    yield message
+                    next_heartbeat = time.time() + self.heartbeat_interval
+                except queue.Empty:
+                    yield signal_pb.SignalMessage(robot_id=self.robot_id) #work here?
+                    next_heartbeat = time.time() + self.heartbeat_interval
+        finally:
+            print(f"_request_iterator FINALLY stop_event={self.stop_event.is_set()}")
             
 
     def _run_stream(self):
@@ -60,7 +59,6 @@ class RobotRequestSignalService:
         try:
             response_stream = self.signal_stub.OpenSignalStream(self._request_iterator())
             for response in response_stream:
-                print("run?")
                 if self.stop_event.is_set():
                     print("run end")
                     break

@@ -9,8 +9,8 @@ import threading
 from queue import Queue
 import socket
 
-os.environ.setdefault("GRPC_VERBOSITY", "DEBUG")
-os.environ.setdefault("GRPC_TRACE", "all")
+# os.environ.setdefault("GRPC_VERBOSITY", "DEBUG")
+# os.environ.setdefault("GRPC_TRACE", "all")
 
 import grpc
 import grpc_commander.grpc.generated.robot_gateway_api_pb2 as pb
