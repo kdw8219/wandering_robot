@@ -20,7 +20,13 @@ class RobotWebrtc():
             try:
                 item = self.queue.get(timeout = 0.1) #block 아님?
             
-                print(f'get Item!{item.command}')
+                # item is a dict, so use key access instead of attributes
+                if item.get('payload_type') == None:
+                    print("payload_type is None")
+                    self.queue.task_done()
+                    continue
+                
+                print(f'get Item!{item.get("payload_type")}')
                 
                 self.queue.task_done()
             except queue.Empty:

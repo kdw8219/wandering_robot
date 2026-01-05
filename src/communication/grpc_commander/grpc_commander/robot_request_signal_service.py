@@ -8,7 +8,7 @@ from google.protobuf.json_format import MessageToDict
 
 class RobotRequestSignalService:
    
-    def __init__(self, signal_stub: signal_pb2_grpc.RobotSignalServiceStub, signal_queue: queue.Queue, robot_id, heartbeat_interval: float = 1.0):
+    def __init__(self, signal_stub: signal_pb2_grpc.RobotSignalServiceStub, signal_queue: queue.Queue, robot_id, heartbeat_interval: float = 2.0):
         self.signal_stub = signal_stub
         self.signal_queue = signal_queue  # incoming messages to be consumed by WebRTC handler
         self.robot_id = robot_id
