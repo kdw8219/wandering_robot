@@ -48,7 +48,8 @@ class RobotRequestSignalService:
                     yield message
                     next_heartbeat = time.time() + self.heartbeat_interval
                 except queue.Empty:
-                    yield signal_pb.SignalMessage(robot_id=self.robot_id) #work here?
+                    print('queue is empty, send heartbeat')
+                    yield signal_pb.SignalMessage(robot_id=self.robot_id, heartbeat_check=signal_pb.Heartbeat()) #work here?
                     next_heartbeat = time.time() + self.heartbeat_interval
         finally:
             print(f"_request_iterator FINALLY stop_event={self.stop_event.is_set()}")
