@@ -35,7 +35,7 @@ class RobotRequestSignalService:
         try:
             yield signal_pb.SignalMessage(
                 robot_id=self.robot_id,
-                screen_request=signal_pb.ScreenRequest(),
+                heartbeat_check=signal_pb.Heartbeat()
             )
             next_heartbeat = time.time() + self.heartbeat_interval
 
@@ -75,7 +75,9 @@ class RobotRequestSignalService:
             "payload_type": payload_type,
         }
 
-        if payload_type:
+        if payload_type is not None and payload_type != "heartbeat_check":
+            
+            print(f"Received signal payload: {payload_type} !!")
             payload[payload_type] = MessageToDict(
                 getattr(response, payload_type),
                 preserving_proto_field_name=True,
