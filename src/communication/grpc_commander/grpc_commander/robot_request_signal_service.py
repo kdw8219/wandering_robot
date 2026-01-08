@@ -84,7 +84,7 @@ class RobotRequestSignalService:
                 if self.stop_event.is_set():
                     print("run end")
                     break
-                print("keep listening")
+                
                 self._handle_response(response)
         except Exception as e:
             print(f"Signal stream error: {str(e)}")
