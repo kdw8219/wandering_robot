@@ -70,7 +70,6 @@ class RobotRequestSignalService:
                         yield outgoing
                     next_heartbeat = time.time() + self.heartbeat_interval
                 except queue.Empty:
-                    print('queue is empty, send heartbeat')
                     yield signal_pb.SignalMessage(robot_id=self.robot_id, heartbeat_check=signal_pb.Heartbeat()) #work here?
                     next_heartbeat = time.time() + self.heartbeat_interval
         finally:

@@ -200,7 +200,9 @@ class GrpcClientNode(Node):
         }
         
         state = self.channel._channel.check_connectivity_state(True)
-        print("channel state:", state)
+        
+        if state != 2:
+            print("channel state is not 2:", state)
         
         #self.queue.put(task)
         
