@@ -8,14 +8,14 @@ from google.protobuf.json_format import MessageToDict
 
 class RobotRequestSignalService:
    
-    def __init__(self, signal_stub: signal_pb2_grpc.RobotSignalServiceStub, signal_queue: queue.Queue, robot_id, heartbeat_interval: float = 2.0):
+    def __init__(self, signal_stub: signal_pb2_grpc.RobotSignalServiceStub, signal_queue: queue.Queue, sending_queue:queue.Queue, robot_id, heartbeat_interval: float = 2.0):
         self.signal_stub = signal_stub
         self.signal_queue = signal_queue  # incoming messages to be consumed by WebRTC handler
         self.robot_id = robot_id
         self.heartbeat_interval = heartbeat_interval
 
         self.stop_event = threading.Event()
-        self.outgoing_queue: queue.Queue = queue.Queue() # for the purpose of sending message to server
+        self.outgoing_queue: queue.Queue = sending_queue # for the purpose of sending message to server
         self.worker = threading.Thread(target=self._run_stream, daemon=True)
 
     def __del__(self):
@@ -29,6 +29,26 @@ class RobotRequestSignalService:
 
     def send_signal(self, message: signal_pb.SignalMessage):
         self.outgoing_queue.put(message)
+
+    def handle_response_message(self, message):
+        if message.get("type") == "robot_offer":
+            return signal_pb.SignalMessage(
+                robot_id=self.robot_id,
+                robot_offer=signal_pb.RobotOffer(
+                    sdp=message.get("sdp", ""),
+                    type="offer"
+                )
+            )
+        if message.get("type") == "robot_ice":
+            return signal_pb.SignalMessage(
+                robot_id=self.robot_id,
+                robot_ice=signal_pb.IceCandidate(
+                    candidate=message.get("candidate", ""),
+                    sdp_mid=message.get("sdp_mid", ""),
+                    sdp_mline_index=message.get("sdp_mline_index", 0),
+                )
+            )
+        return None
 
     def _request_iterator(self):
         # Initial stream creation / data request
@@ -45,10 +65,11 @@ class RobotRequestSignalService:
                     message = self.outgoing_queue.get(timeout=timeout)
                     if message is None:
                         continue
-                    yield message
+                    outgoing = self.handle_response_message(message)
+                    if outgoing is not None:
+                        yield outgoing
                     next_heartbeat = time.time() + self.heartbeat_interval
                 except queue.Empty:
-                    print('queue is empty, send heartbeat')
                     yield signal_pb.SignalMessage(robot_id=self.robot_id, heartbeat_check=signal_pb.Heartbeat()) #work here?
                     next_heartbeat = time.time() + self.heartbeat_interval
         finally:

@@ -80,6 +80,7 @@ class GrpcClientNode(Node):
         )
         self.command_queue = Queue()
         self.signal_queue = Queue()
+        self.signal_response_queue = Queue()
         
         self.stub = pb2_grpc.RobotApiGatewayStub(self.channel) #연결 시도
         self.signal_stub = signal_pb2_grpc.RobotSignalServiceStub(self.channel) #연결 시도
@@ -87,8 +88,8 @@ class GrpcClientNode(Node):
         self.robot_control = RobotRequestControlService(self.control_stub, self.command_queue, self.robot_id)
         self.robot_controller = RobotController(self.command_queue)
         
-        self.robot_signal = RobotRequestSignalService(self.signal_stub, self.signal_queue, self.robot_id)
-        self.robot_webrtc = RobotWebrtc(self.signal_queue)
+        self.robot_signal = RobotRequestSignalService(self.signal_stub, self.signal_queue, self.signal_response_queue, self.robot_id)
+        self.robot_webrtc = RobotWebrtc(self.signal_queue, self.signal_response_queue)
 
         # TOKENS
         self.on_refreshing = False
@@ -199,7 +200,9 @@ class GrpcClientNode(Node):
         }
         
         state = self.channel._channel.check_connectivity_state(True)
-        print("channel state:", state)
+        
+        if state != 2:
+            print("channel state is not 2:", state)
         
         #self.queue.put(task)
         
