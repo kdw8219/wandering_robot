@@ -7,13 +7,14 @@ import asyncio
 
 class MediaSource:
     def __init__(self, frame_rate: int = 30, frame_size = "1280x720"):
-        self.frame_rate = frame_rate,
-        self.frame_size = frame_size,
-        self.player:Optional[MediaPlayer] = None,
+        self.frame_rate = frame_rate
+        self.frame_size = frame_size
+        self.player: Optional[MediaPlayer] = None
         
         
     def start(self) -> MediaStreamTrack:
         self.player = MediaPlayer(
+            file=":0",
             format="x11grab",
             options={
                 "framerate": str(self.frame_rate),
@@ -141,12 +142,12 @@ class RobotWebrtc:
 
     def working_thread(self) -> None:
         print("Robot Signal thread start!")
+        asyncio.set_event_loop(asyncio.new_event_loop())
         while not self.stop_event.is_set():
             try:
                 item = self.queue.get(timeout=0.1)
                 payload_type = item.get("payload_type")
                 if payload_type is None:
-                    print("payload_type is None")
                     self.queue.task_done()
                     continue
 
