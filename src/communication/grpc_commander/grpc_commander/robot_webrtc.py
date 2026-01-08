@@ -1,7 +1,8 @@
 import queue
 import threading
 from typing import Optional, Callable, Dict, Any
-from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStreamTrack
+from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack
+from aiortc.sdp import candidate_from_sdp
 from aiortc.contrib.media import MediaPlayer
 import asyncio
 
@@ -97,11 +98,9 @@ class WebrtcSession:
         asyncio.get_event_loop().run_until_complete(self._apply(sdp))
 
     async def _add(self, candidate):
-        ice = RTCIceCandidate(
-            candidate=candidate.get("candidate"),
-            sdpMid=candidate.get("sdp_mid"),
-            sdpMLineIndex=candidate.get("sdp_mline_index"),
-        )
+        ice = candidate_from_sdp(candidate.get("candidate", ""))
+        ice.sdpMid = candidate.get("sdp_mid")
+        ice.sdpMLineIndex = candidate.get("sdp_mline_index")
         await self.pc.addIceCandidate(ice)
 
 
