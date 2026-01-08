@@ -1,8 +1,9 @@
 import queue
 import threading
-from typing import Optional
+from typing import Optional, Callable, Dict, Any
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStreamTrack
 from aiortc.contrib.media import MediaPlayer
+import asyncio
 
 class MediaSource:
     def __init__(self, frame_rate: int = 30, frame_size = "1280x720"):
@@ -11,7 +12,7 @@ class MediaSource:
         self.player:Optional[MediaPlayer] = None,
         
         
-    def start(self) -> None:
+    def start(self) -> MediaStreamTrack:
         self.player = MediaPlayer(
             format="x11grab",
             options={
@@ -22,51 +23,112 @@ class MediaSource:
         return self.player.video
 
     def stop(self) -> None:
-        self.player.stop()
-        self.player = None
+        if self.player:
+            self.player.stop()
+            self.player = None
         pass
 
 
 class WebrtcSession:
-    def __init__(self, media_source: MediaSource):
+    def __init__(
+        self,
+        media_source: MediaSource,
+        on_ice_candidate: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ):
         self.media_source = media_source
+        self.pc: Optional[RTCPeerConnection] = None
         self.active = False
+        self.on_ice_candidate = on_ice_candidate
 
     def start(self) -> None:
         if self.active:
             return
-        self.media_source.start()
+        self.pc = RTCPeerConnection()
+        if self.on_ice_candidate:
+            @self.pc.on("icecandidate")
+            async def _on_icecandidate(candidate):
+                if candidate is None:
+                    return
+                self.on_ice_candidate(
+                    {
+                        "candidate": candidate.candidate,
+                        "sdp_mid": candidate.sdpMid,
+                        "sdp_mline_index": candidate.sdpMLineIndex,
+                    }
+                )
+        media_stream_track = self.media_source.start()
+        if media_stream_track:
+            self.pc.addTrack(media_stream_track)
         self.active = True
 
     def stop(self) -> None:
         if not self.active:
             return
         self.media_source.stop()
+        
+        if self.pc:
+            # self.pc.close()가 async이기 때문에 이벤트 루프에서 close해서 완전 처리 필요
+            asyncio.get_event_loop().run_until_complete(self.pc.close())
+            self.pc = None
+        
         self.active = False
 
-    def create_offer(self) -> Optional[str]:
-        if not self.active:
-            return None
-        # TODO: create SDP offer from PeerConnection.
-        return None
+    async def _create_offer(self):
+        offer = await self.pc.createOffer()
+        await self.pc.setLocalDescription(offer)
+        return self.pc.localDescription.sdp
 
+    def create_offer(self) -> Optional[str]:
+        if self.active is False or self.pc is None:
+            return None
+        
+        result = asyncio.get_event_loop().run_until_complete(self._create_offer())
+        return result
+
+    async def _apply(self, sdp):
+        desc = RTCSessionDescription(sdp=sdp, type="answer")
+        await self.pc.setRemoteDescription(desc)
+        
     def handle_answer(self, sdp: str) -> None:
-        # TODO: apply remote SDP answer to PeerConnection.
-        pass
+        if self.active is False and self.pc is None:
+            return None
+        
+        asyncio.get_event_loop().run_until_complete(self._apply(sdp))
+
+    async def _add(self, candidate):
+        ice = RTCIceCandidate(
+            candidate=candidate.get("candidate"),
+            sdpMid=candidate.get("sdp_mid"),
+            sdpMLineIndex=candidate.get("sdp_mline_index"),
+        )
+        await self.pc.addIceCandidate(ice)
+
 
     def add_ice_candidate(self, candidate: dict) -> None:
-        # TODO: add remote ICE candidate to PeerConnection.
-        pass
+        
+        if self.active is False or self.pc is None:
+            return None
+        
+        asyncio.get_event_loop().run_until_complete(self._add(candidate))
 
 
 class RobotWebrtc:
-    """Coordinates signaling payloads with a WebRTC session."""
-
-    def __init__(self, queue: queue.Queue, session: WebrtcSession):
+    def __init__(self, queue: queue.Queue, response_queue: queue.Queue):
         self.queue = queue
-        self.session = session
+        self.response_queue = response_queue
         self.worker = threading.Thread(target=self.working_thread, daemon=True)
         self.stop_event = threading.Event()
+        self.webrtc_session = WebrtcSession(MediaSource(), self._handle_local_ice)
+
+    def _handle_local_ice(self, candidate: Dict[str, Any]) -> None:
+        self.response_queue.put(
+            {
+                "type": "robot_ice",
+                "candidate": candidate.get("candidate", ""),
+                "sdp_mid": candidate.get("sdp_mid", ""),
+                "sdp_mline_index": candidate.get("sdp_mline_index", 0),
+            }
+        )
 
     def __del__(self):
         self.stop_event.set()
@@ -96,17 +158,27 @@ class RobotWebrtc:
 
     def _handle_payload(self, payload_type: str, item: dict) -> None:
         if payload_type == "screen_request":
-            self.session.start()
-            # TODO: Robot offer 만들기 전에 영상 관련 처리 끝내놓고 RobotOffer 전송 필요.
-            # TODO: 일단 js 보고 초안은 잡아놨는데 나머지는 내일...
+            self.webrtc_session.start()
+            offer_sdp = self.webrtc_session.create_offer()
+            if offer_sdp is None:
+                return
+            self.response_queue.put(
+                {
+                    "type": "robot_offer",
+                    "sdp": offer_sdp,
+                }
+            )
             return
+ 
         if payload_type == "client_answer":
-            answer = item.get("client_answer", {}).get("sdp")
+            client_answer = item.get("client_answer", {})
+            answer = client_answer.get("sdp")
             if answer:
-                self.session.handle_answer(answer)
+                self.webrtc_session.handle_answer(answer)
             return
+            
         if payload_type == "client_ice":
             candidate = item.get("client_ice")
             if candidate:
-                self.session.add_ice_candidate(candidate)
+                self.webrtc_session.add_ice_candidate(candidate)
             return
