@@ -1,7 +1,14 @@
+import os
 import queue
 import threading
 from typing import Optional, Callable, Dict, Any
-from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack
+from aiortc import (
+    RTCPeerConnection,
+    RTCSessionDescription,
+    MediaStreamTrack,
+    RTCConfiguration,
+    RTCIceServer,
+)
 from aiortc.sdp import candidate_from_sdp
 from aiortc.contrib.media import MediaPlayer
 import asyncio
@@ -36,21 +43,25 @@ class WebrtcSession:
         self,
         media_source: MediaSource,
         on_ice_candidate: Optional[Callable[[Dict[str, Any]], None]] = None,
+        rtc_configuration: Optional[RTCConfiguration] = None,
     ):
         self.media_source = media_source
         self.pc: Optional[RTCPeerConnection] = None
         self.active = False
         self.on_ice_candidate = on_ice_candidate
+        self.rtc_configuration = rtc_configuration
 
     def start(self) -> None:
         if self.active:
             return
-        self.pc = RTCPeerConnection()
+        self.pc = RTCPeerConnection(self.rtc_configuration)
         if self.on_ice_candidate:
             @self.pc.on("icecandidate")
             async def _on_icecandidate(candidate):
                 if candidate is None:
+                    print("ICE gathering complete but no candidate found.")
                     return
+                print(f"Local ICE candidate: {candidate.candidate}")
                 self.on_ice_candidate(
                     {
                         "candidate": candidate.candidate,
@@ -58,6 +69,12 @@ class WebrtcSession:
                         "sdp_mline_index": candidate.sdpMLineIndex,
                     }
                 )
+        @self.pc.on("icegatheringstatechange")
+        async def _on_icegatheringstatechange():
+            print(f"ICE gathering state: {self.pc.iceGatheringState}")
+        @self.pc.on("iceconnectionstatechange")
+        async def _on_iceconnectionstatechange():
+            print(f"ICE connection state: {self.pc.iceConnectionState}")
         media_stream_track = self.media_source.start()
         if media_stream_track:
             self.pc.addTrack(media_stream_track)
@@ -118,7 +135,33 @@ class RobotWebrtc:
         self.response_queue = response_queue
         self.worker = threading.Thread(target=self.working_thread, daemon=True)
         self.stop_event = threading.Event()
-        self.webrtc_session = WebrtcSession(MediaSource(), self._handle_local_ice)
+        self.rtc_configuration = self._build_rtc_configuration()
+        self.webrtc_session = WebrtcSession(
+            MediaSource(), self._handle_local_ice, self.rtc_configuration
+        )
+        self.client_ip_override = ""
+        self.wsl_host_ip = ""
+        
+
+    def _build_rtc_configuration(self) -> Optional[RTCConfiguration]:
+        urls_env = os.environ.get("WEBRTC_TURN_URLS", "")
+        if not urls_env:
+            return None
+        urls = [url.strip() for url in urls_env.split(",") if url.strip()]
+        if not urls:
+            return None
+        ice_server_kwargs: Dict[str, Any] = {"urls": urls}
+        username = os.environ.get("WEBRTC_TURN_USERNAME", "")
+        credential = os.environ.get("WEBRTC_TURN_CREDENTIAL", "")
+        
+        print(f"TURN server configured with URLs: {urls}")
+        print(f"TURN username: {username}")
+        print(f"TURN credential: {'***' if credential else ''}")
+        if username:
+            ice_server_kwargs["username"] = username
+        if credential:
+            ice_server_kwargs["credential"] = credential
+        return RTCConfiguration(iceServers=[RTCIceServer(**ice_server_kwargs)])
 
     def _handle_local_ice(self, candidate: Dict[str, Any]) -> None:
         self.response_queue.put(
@@ -180,5 +223,27 @@ class RobotWebrtc:
         if payload_type == "client_ice":
             candidate = item.get("client_ice")
             if candidate:
-                self.webrtc_session.add_ice_candidate(candidate)
+                self.webrtc_session.add_ice_candidate(
+                    self._rewrite_client_candidate(candidate)
+                )
             return
+
+    def _rewrite_client_candidate(self, candidate: dict) -> dict:
+        print('work?')
+        candidate_sdp = candidate.get("candidate", "")
+        if not self.wsl_host_ip or not candidate_sdp:
+            return candidate
+        parts = candidate_sdp.split()
+        if len(parts) < 6:
+            return candidate
+        address = parts[4]
+        if self.client_ip_override and address == self.client_ip_override:
+            parts[4] = self.wsl_host_ip
+        elif address.endswith(".local"):
+            parts[4] = self.wsl_host_ip
+        else:
+            return candidate
+        updated = dict(candidate)
+        updated["candidate"] = " ".join(parts)
+        print(f"Rewriting candidate: {candidate_sdp} -> {updated['candidate']}")
+        return updated
