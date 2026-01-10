@@ -39,14 +39,14 @@ class RobotRequestControlService():
                     continue
                 else:
                     payload_type = resp.WhichOneof("payload")
-            
-                    
-                    if payload_type == "move":
-                        payload[payload_type] = MessageToDict(resp.move, preserving_proto_field_name=True)
-                    elif payload_type == "set_speed":
-                        payload[payload_type] = MessageToDict(resp.set_speed, preserving_proto_field_name=True)
-                    elif payload_type == "path_follow":
-                        payload[payload_type] = MessageToDict(resp.path_follow, preserving_proto_field_name=True)
+
+                    print(f"Received command: {control_pb.CommandType.Name(resp.command)}")
+
+                    if payload_type is not None:
+                        payload[payload_type] = MessageToDict(
+                            getattr(resp, payload_type),
+                            preserving_proto_field_name=True,
+                        )
                 
                 
                 self.queue.put(json.dumps(payload))

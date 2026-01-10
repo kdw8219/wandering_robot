@@ -1,3 +1,4 @@
+import json
 import queue
 import threading
 
@@ -19,8 +20,21 @@ class RobotController():
         while not self.stop_event.is_set():
             try:
                 item = self.queue.get(timeout = 0.1) #block 아님?
-            
-                print(f'get Item!{item.command}')
+
+                if isinstance(item, bytes):
+                    item = item.decode("utf-8")
+                if isinstance(item, str):
+                    try:
+                        item = json.loads(item)
+                    except json.JSONDecodeError:
+                        print(f"Invalid queue item (not JSON): {item}")
+                        self.queue.task_done()
+                        continue
+
+                command = item.get("command") if isinstance(item, dict) else None
+                print(f"get Item!{command}")
+                
+                #send to robot controller logic here
                 
                 self.queue.task_done()
             except queue.Empty:
