@@ -50,6 +50,22 @@ class WebrtcSession:
         self.active = False
         self.on_ice_candidate = on_ice_candidate
         self.rtc_configuration = rtc_configuration
+        self._last_sdp_dump = ""
+
+    def _dump_local_sdp_candidates(self, label: str) -> None:
+        if not self.pc or not self.pc.localDescription:
+            print(f"{label}: localDescription not ready yet.")
+            return
+        sdp = self.pc.localDescription.sdp or ""
+        if sdp == self._last_sdp_dump:
+            return
+        self._last_sdp_dump = sdp
+        candidates = [line for line in sdp.splitlines() if line.startswith("a=candidate:")]
+        print(f"{label}: local SDP candidates count={len(candidates)}")
+        for line in candidates:
+            print(f"{label}: {line}")
+        if not candidates:
+            print(f"{label}: no local candidates in SDP yet.")
 
     def start(self) -> None:
         if self.active:
@@ -72,6 +88,8 @@ class WebrtcSession:
         @self.pc.on("icegatheringstatechange")
         async def _on_icegatheringstatechange():
             print(f"ICE gathering state: {self.pc.iceGatheringState}")
+            if self.pc.iceGatheringState == "complete":
+                self._dump_local_sdp_candidates("ICE gathering complete")
         @self.pc.on("iceconnectionstatechange")
         async def _on_iceconnectionstatechange():
             print(f"ICE connection state: {self.pc.iceConnectionState}")
@@ -95,6 +113,7 @@ class WebrtcSession:
     async def _create_offer(self):
         offer = await self.pc.createOffer()
         await self.pc.setLocalDescription(offer)
+        self._dump_local_sdp_candidates("After setLocalDescription")
         return self.pc.localDescription.sdp
 
     def create_offer(self) -> Optional[str]:
@@ -126,6 +145,9 @@ class WebrtcSession:
         if self.active is False or self.pc is None:
             return None
         
+        cand_line = candidate.get("candidate", "")
+        if cand_line:
+            print(f"Remote ICE candidate (raw): {cand_line}")
         asyncio.get_event_loop().run_until_complete(self._add(candidate))
 
 
@@ -229,7 +251,9 @@ class RobotWebrtc:
             return
 
     def _rewrite_client_candidate(self, candidate: dict) -> dict:
-        print('work?')
+        cand_line = candidate.get("candidate", "")
+        if cand_line:
+            print(f"Remote ICE candidate (before rewrite): {cand_line}")
         candidate_sdp = candidate.get("candidate", "")
         if not self.wsl_host_ip or not candidate_sdp:
             return candidate
