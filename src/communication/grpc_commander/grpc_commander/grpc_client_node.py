@@ -5,6 +5,7 @@ from rclpy.qos import qos_profile_sensor_data
 import asyncio
 import json
 from std_msgs.msg import String
+from geometry_msgs.msg import Twist
 import threading
 from queue import Queue
 import socket
@@ -86,7 +87,8 @@ class GrpcClientNode(Node):
         self.signal_stub = signal_pb2_grpc.RobotSignalServiceStub(self.channel) #연결 시도
         self.control_stub = control_pb2_grpc.RobotRequestControlServiceStub(self.channel) #연결 시도
         self.robot_control = RobotRequestControlService(self.control_stub, self.command_queue, self.robot_id)
-        self.robot_controller = RobotController(self.command_queue)
+        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.robot_controller = RobotController(self.command_queue, self.cmd_vel_pub)
         
         self.robot_signal = RobotRequestSignalService(self.signal_stub, self.signal_queue, self.signal_response_queue, self.robot_id)
         self.robot_webrtc = RobotWebrtc(self.signal_queue, self.signal_response_queue)
