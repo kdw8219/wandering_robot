@@ -52,7 +52,7 @@ class GrpcClientNode(Node):
         self.declare_parameter("server_url", "127.0.0.1")
         self.declare_parameter("server_port", 50051)
         self.declare_parameter("robot_id", "test_robot_1")
-        self.declare_parameter("robot_secret", "abcdzxcv")
+        self.declare_parameter("robot_secret", "1234qwer")
         self.declare_parameter("request_expired", 3.0)
         self.declare_parameter("access_secret_key", "abcdefg")
         
