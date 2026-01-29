@@ -184,6 +184,12 @@ class GrpcClientNode(Node):
                     )
                     response = self.stub.Pos(request, timeout=3.0, metadata=self.metadata)
                     self.get_logger().info(f"Pos success? : {response.success}. Result: {response.result}.")
+                # elif 'slam' in task['func']:
+                #     request = pb.MapUploadRequest(
+                        
+                #     )
+                #     response = self.stub.MapUpload(request, timeout=3.0, metadata=self.metadata)
+                #     self.get_logger().info(f"Map Upload success? : {response.success}. Result: {response.result}.")
                 else :
                     self.get_logger().warning(f"Unknown task function: {task['func']}")
                     continue
@@ -206,7 +212,7 @@ class GrpcClientNode(Node):
         if state != 2:
             print("channel state is not 2:", state)
         
-        #self.queue.put(task)
+        self.queue.put(task)
         
         self.heartbeat_start = True
         
